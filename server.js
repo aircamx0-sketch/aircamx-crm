@@ -5,115 +5,217 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 import dotenv from "dotenv";
 import OpenAI from "openai";
+import { google } from "googleapis";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static("public"));
+
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const SHEET_NAME = "Leads";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-let leads = [];
+const auth = new google.auth.JWT({
+  email: process.env.GOOGLE_CLIENT_EMAIL,
+  key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+});
+
+const sheets = google.sheets({ version: "v4", auth });
+
+const headers = [
+  "id","address","city","price","agent_name","agent_phone","agent_email",
+  "photo_count","listing_url","status","sms","email","follow_up_sms",
+  "follow_up_email","last_message_date","next_follow_up","notes",
+  "deal_value","created_at"
+];
+
+function todayISO() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function addDaysISO(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+function rowToLead(row) {
+  const lead = {};
+  headers.forEach((h, i) => lead[h] = row[i] || "");
+  lead.score = scoreLead(lead);
+  return lead;
+}
+
+function leadToRow(lead) {
+  return headers.map(h => lead[h] || "");
+}
 
 function scoreLead(lead) {
   const photoCount = Number(lead.photo_count || 0);
   const price = Number(String(lead.price || "").replace(/[^0-9]/g, ""));
 
   let score = 0;
-
-  if (photoCount === 0) score += 70;
-  else if (photoCount <= 3) score += 55;
-  else if (photoCount <= 8) score += 30;
+  if (photoCount === 0) score += 80;
+  else if (photoCount <= 3) score += 65;
+  else if (photoCount <= 8) score += 35;
   else score += 10;
 
   if (price >= 600000) score += 20;
-  if (photoCount <= 3) score += 10;
-
   return Math.min(score, 100);
 }
 
-function generateMessage(lead) {
-  return `Hey ${lead.agent_name || "there"}, I saw your listing at ${lead.address || "your listing"}${lead.city ? " in " + lead.city : ""}. AirCamX can help with photos, drone, video, and fast turnaround. Want pricing + examples?`;
-}
-
-async function generateAIMessage(lead) {
-  const prompt = `
-Write a short high-converting SMS for AirCamX.
-
-AirCamX offers real estate media:
-- HDR listing photos
-- drone photos
-- video walkthroughs
-- 3D tours
-- fast 24-hour turnaround
-
-Rules:
-- Keep under 280 characters
-- Sound casual and human
-- Do not sound spammy
-- Mention weak/no photos only if photo count is 3 or less
-- End by asking if they want pricing and examples
-
-Lead:
-Address: ${lead.address || "Unknown"}
-City: ${lead.city || "Arizona"}
-Price: ${lead.price || "Unknown"}
-Photo count: ${lead.photo_count || "Unknown"}
-Agent name: ${lead.agent_name || "Agent"}
-`;
-
+async function aiText(prompt) {
   const result = await openai.chat.completions.create({
     model: "gpt-4.1-mini",
-    messages: [
-      {
-        role: "user",
-        content: prompt
-      }
-    ]
+    messages: [{ role: "user", content: prompt }]
   });
 
   return result.choices[0].message.content.trim();
 }
 
-function loadLeads() {
-  return new Promise((resolve, reject) => {
-    const results = [];
+async function generateInitialSMS(lead) {
+  return aiText(`
+Write a very human SMS for AirCamX.
 
-    if (!fs.existsSync("leads.csv")) {
-      return reject(new Error("leads.csv not found"));
-    }
+Rules:
+- Under 280 characters
+- Casual, personal, not salesy
+- Mention the specific property
+- If photo count is 0-3, softly mention the listing looks like it may still need media
+- Offer photos, drone, video, 3D tour, 24-hour turnaround
+- End with: "Want me to send pricing + examples?"
 
-    fs.createReadStream("leads.csv")
-      .pipe(csv())
-      .on("data", async (data) => {
-        results.push({
-          id: crypto.randomUUID(),
-          ...data,
-          score: scoreLead(data),
-          sms: generateMessage(data),
-          status: "new",
-          notes: "",
-          last_touch: "",
-          deal_value: "",
-          next_follow_up: ""
-        });
-      })
-      .on("end", () => resolve(results))
-      .on("error", reject);
+Lead:
+Address: ${lead.address}
+City: ${lead.city}
+Price: ${lead.price}
+Agent: ${lead.agent_name || "Agent"}
+Photo count: ${lead.photo_count || "unknown"}
+`);
+}
+
+async function generateInitialEmail(lead) {
+  return aiText(`
+Write a short friendly email for AirCamX real estate media.
+
+Rules:
+- Subject line first like: Subject: ...
+- Short, human, not corporate
+- Mention the property address
+- Offer photos, drone, video, 3D tour, fast turnaround
+- Ask if they want pricing and examples
+
+Lead:
+${JSON.stringify(lead, null, 2)}
+`);
+}
+
+async function generateFollowUpSMS(lead) {
+  return aiText(`
+Write a natural follow-up SMS for AirCamX.
+
+Rules:
+- Under 240 characters
+- Not pushy
+- Sounds like a real person
+- Reference that I reached out about the listing at ${lead.address}
+- Ask if they still need media or a backup option
+
+Lead:
+${JSON.stringify(lead, null, 2)}
+`);
+}
+
+async function generateFollowUpEmail(lead) {
+  return aiText(`
+Write a short follow-up email for AirCamX.
+
+Rules:
+- Include subject line
+- Friendly and human
+- Not pushy
+- Reference the listing at ${lead.address}
+- Mention photos/drone/video/3D tour only briefly
+- Ask if they still need help
+
+Lead:
+${JSON.stringify(lead, null, 2)}
+`);
+}
+
+async function getAllLeads() {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:S`
   });
+
+  const rows = response.data.values || [];
+  return rows.map(rowToLead);
+}
+
+async function appendLead(lead) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A:S`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [leadToRow(lead)]
+    }
+  });
+}
+
+async function updateLeadInSheet(id, updates) {
+  const leads = await getAllLeads();
+  const index = leads.findIndex(l => l.id === id);
+
+  if (index === -1) return null;
+
+  const updatedLead = {
+    ...leads[index],
+    ...updates
+  };
+
+  if (updates.status === "messaged") {
+    updatedLead.last_message_date = todayISO();
+    updatedLead.next_follow_up = addDaysISO(3);
+    updatedLead.follow_up_sms = await generateFollowUpSMS(updatedLead);
+    updatedLead.follow_up_email = await generateFollowUpEmail(updatedLead);
+  }
+
+  if (updates.status === "follow_up") {
+    updatedLead.last_message_date = todayISO();
+    updatedLead.next_follow_up = addDaysISO(3);
+    updatedLead.follow_up_sms = await generateFollowUpSMS(updatedLead);
+    updatedLead.follow_up_email = await generateFollowUpEmail(updatedLead);
+  }
+
+  const rowNumber = index + 2;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A${rowNumber}:S${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [leadToRow(updatedLead)]
+    }
+  });
+
+  return rowToLead(leadToRow(updatedLead));
 }
 
 async function parseListingUrl(url) {
   const response = await axios.get(url, {
     timeout: 12000,
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+      "User-Agent": "Mozilla/5.0"
     }
   });
 
@@ -131,178 +233,151 @@ async function parseListingUrl(url) {
     "";
 
   const combined = `${title} ${description}`;
-
   const priceMatch = combined.match(/\$[\d,]+/);
   const price = priceMatch ? priceMatch[0].replace(/[^0-9]/g, "") : "";
 
-  let address = title.split("|")[0]?.trim() || "";
-
-  if (!address || address.length > 140) {
-    address = title.substring(0, 100).trim() || "Review URL manually";
-  }
-
-  const imgCount = $("img").length || 0;
-
   return {
     listing_url: url,
-    address,
+    address: title.split("|")[0]?.trim() || "Review URL manually",
     city: "",
     price,
     agent_name: "",
     agent_phone: "",
     agent_email: "",
-    photo_count: imgCount,
-    import_status: "needs_review"
+    photo_count: $("img").length || "",
+    status: "needs_review",
+    notes: "Imported from URL. Review missing fields."
   };
 }
 
-app.get("/api/load", async (req, res) => {
+app.get("/api/leads", async (req, res) => {
   try {
-    leads = await loadLeads();
-
-    for (const lead of leads) {
-      lead.sms = await generateAIMessage(lead);
-    }
-
-    res.json({
-      success: true,
-      total: leads.length,
-      leads
-    });
+    const leads = await getAllLeads();
+    res.json({ total: leads.length, leads });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.get("/api/leads", (req, res) => {
-  res.json({
-    total: leads.length,
-    leads
-  });
+app.get("/api/load", async (req, res) => {
+  try {
+    const leads = await getAllLeads();
+    res.json({ success: true, total: leads.length, leads });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 app.post("/api/add-lead", async (req, res) => {
   try {
     const data = req.body;
 
-    const newLead = {
+    const lead = {
       id: crypto.randomUUID(),
-      ...data,
-      score: scoreLead(data),
-      sms: await generateAIMessage(data),
+      address: data.address || "",
+      city: data.city || "",
+      price: data.price || "",
+      agent_name: data.agent_name || "",
+      agent_phone: data.agent_phone || "",
+      agent_email: data.agent_email || "",
+      photo_count: data.photo_count || "",
+      listing_url: data.listing_url || "",
       status: "new",
-      notes: "",
-      last_touch: "",
-      deal_value: "",
-      next_follow_up: ""
+      sms: "",
+      email: "",
+      follow_up_sms: "",
+      follow_up_email: "",
+      last_message_date: "",
+      next_follow_up: "",
+      notes: data.notes || "",
+      deal_value: data.deal_value || "",
+      created_at: todayISO()
     };
 
-    leads.unshift(newLead);
+    lead.sms = await generateInitialSMS(lead);
+    lead.email = await generateInitialEmail(lead);
 
-    res.json({
-      success: true,
-      lead: newLead
-    });
+    await appendLead(lead);
+
+    res.json({ success: true, lead: rowToLead(leadToRow(lead)) });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
 app.post("/api/import-urls", async (req, res) => {
   try {
     const { urls } = req.body;
-
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: "No URLs provided"
-      });
-    }
-
     const imported = [];
 
-    for (const url of urls) {
+    for (const url of urls || []) {
       try {
         const parsed = await parseListingUrl(url);
 
-        const newLead = {
+        const lead = {
           id: crypto.randomUUID(),
           ...parsed,
-          score: scoreLead(parsed),
-          sms: await generateAIMessage(parsed),
-          status: "new",
-          notes: "Imported from URL. Review missing fields like agent phone, city, and photo count.",
-          last_touch: "",
+          sms: "",
+          email: "",
+          follow_up_sms: "",
+          follow_up_email: "",
+          last_message_date: "",
+          next_follow_up: "",
           deal_value: "",
-          next_follow_up: ""
+          created_at: todayISO()
         };
 
-        leads.unshift(newLead);
-        imported.push(newLead);
-      } catch (error) {
-        const failedLead = {
+        lead.sms = await generateInitialSMS(lead);
+        lead.email = await generateInitialEmail(lead);
+
+        await appendLead(lead);
+        imported.push(rowToLead(leadToRow(lead)));
+      } catch {
+        const lead = {
           id: crypto.randomUUID(),
-          listing_url: url,
-          address: "Failed to read URL",
+          address: "Review URL manually",
           city: "",
           price: "",
           agent_name: "",
           agent_phone: "",
           agent_email: "",
           photo_count: "",
-          score: 0,
-          sms: "Review this listing manually, then generate/send message.",
+          listing_url: url,
           status: "needs_review",
-          notes: "URL import failed. Site may block automated reading.",
-          last_touch: "",
+          sms: "Review this lead manually, then send a personal message.",
+          email: "",
+          follow_up_sms: "",
+          follow_up_email: "",
+          last_message_date: "",
+          next_follow_up: "",
+          notes: "URL could not be read automatically.",
           deal_value: "",
-          next_follow_up: ""
+          created_at: todayISO()
         };
 
-        leads.unshift(failedLead);
-        imported.push(failedLead);
+        await appendLead(lead);
+        imported.push(rowToLead(leadToRow(lead)));
       }
     }
 
-    res.json({
-      success: true,
-      total: imported.length,
-      leads: imported
-    });
+    res.json({ success: true, total: imported.length, leads: imported });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.patch("/api/leads/:id", (req, res) => {
-  const { id } = req.params;
-  const index = leads.findIndex((lead) => lead.id === id);
+app.patch("/api/leads/:id", async (req, res) => {
+  try {
+    const updated = await updateLeadInSheet(req.params.id, req.body);
 
-  if (index === -1) {
-    return res.status(404).json({
-      success: false,
-      error: "Lead not found"
-    });
+    if (!updated) {
+      return res.status(404).json({ success: false, error: "Lead not found" });
+    }
+
+    res.json({ success: true, lead: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
-
-  leads[index] = {
-    ...leads[index],
-    ...req.body
-  };
-
-  res.json({
-    success: true,
-    lead: leads[index]
-  });
 });
 
 app.get("/", (req, res) => {
@@ -310,5 +385,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AirCamX CRM running on http://localhost:${PORT}`);
+  console.log(`AirCamX CRM running on port ${PORT}`);
 });
