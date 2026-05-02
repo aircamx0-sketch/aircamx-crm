@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AirCamX Lead Intelligence CRM</title>
+
+<style>
+*{box-sizing:border-box;font-family:Inter,Arial,sans-serif}
+body{margin:0;background:#f4f6f8;color:#111}
+.app{display:flex;min-height:100vh}
+.sidebar{width:245px;background:#07111f;color:white;padding:18px 14px;border-right:1px solid #111827;position:fixed;inset:0 auto 0 0}
+.brand{font-size:22px;font-weight:900;color:#d4af37;margin-bottom:4px}
+.brand-sub{font-size:12px;color:#9ca3af;margin-bottom:24px}
+.nav button{width:100%;display:flex;align-items:center;gap:10px;background:transparent;color:#cbd5e1;border:0;border-radius:10px;padding:11px 12px;margin-bottom:4px;text-align:left;cursor:pointer;font-weight:700}
+.nav button.active,.nav button:hover{background:#111c2f;color:white}
+.main{margin-left:245px;width:calc(100% - 245px)}
+.topbar{height:68px;background:white;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;padding:0 22px;position:sticky;top:0;z-index:5}
+.search{width:420px;max-width:100%;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:10px;padding:11px 14px}
+.top-actions{display:flex;gap:8px;align-items:center}
+.btn{border:1px solid #d1d5db;background:white;color:#111827;border-radius:9px;padding:9px 12px;font-weight:800;cursor:pointer;font-size:13px}
+.btn.primary{background:#07111f;color:white;border-color:#07111f}
+.btn.gold{background:#d4af37;color:#111;border-color:#d4af37}
+.btn:hover{filter:brightness(.96)}
+.content{padding:20px 22px}
+.page-title{font-size:24px;font-weight:900;margin-bottom:4px}
+.muted{color:#6b7280;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+.stat{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:15px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.stat span{font-size:12px;color:#6b7280;font-weight:800;text-transform:uppercase}
+.stat strong{display:block;font-size:25px;margin-top:6px;color:#07111f}
+.panel{background:white;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.03);overflow:hidden}
+.filters{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px;border-bottom:1px solid #e5e7eb}
+.filters-left{display:flex;gap:10px;flex-wrap:wrap}
+select,input,textarea{border:1px solid #d1d5db;background:white;border-radius:9px;padding:9px 10px;font-size:13px}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#6b7280;background:#f9fafb;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:11px;border-bottom:1px solid #e5e7eb}
+td{padding:13px 11px;border-bottom:1px solid #eef0f3;vertical-align:middle}
+tr:hover{background:#fafafa}
+.addr{font-weight:900;color:#111827}
+.sub{color:#6b7280;font-size:12px;margin-top:3px}
+.score{display:inline-grid;place-items:center;width:38px;height:28px;border-radius:999px;font-weight:900;background:#e5f6ed;color:#047857}
+.score.hot{background:#fff3c4;color:#8a5a00}
+.pill{display:inline-block;padding:6px 9px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800;font-size:12px}
+.sms-preview{max-width:360px;color:#374151;line-height:1.35}
+.row-actions{display:flex;gap:6px}
+.icon-btn{border:1px solid #e5e7eb;background:white;border-radius:8px;padding:7px 9px;cursor:pointer;font-weight:800;font-size:12px}
+.modal{display:none;position:fixed;inset:0;background:rgba(7,17,31,.55);z-index:99;align-items:center;justify-content:center;padding:16px}
+.modal-card{width:100%;max-width:560px;background:white;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:18px}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.modal-title{font-size:18px;font-weight:900}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-grid .full{grid-column:1/-1}
+.modal-card input,.modal-card textarea{width:100%}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.drawer{position:fixed;right:-430px;top:0;width:430px;max-width:100%;height:100vh;background:white;z-index:80;border-left:1px solid #e5e7eb;box-shadow:-10px 0 40px rgba(0,0,0,.12);transition:.25s ease;padding:18px;overflow:auto}
+.drawer.open{right:0}
+.drawer h2{margin:0 0 6px}
+.sms-box{background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:12px;line-height:1.45;font-size:13px;margin:12px 0}
+.drawer textarea{width:100%;min-height:90px}
+@media(max-width:900px){
+  .sidebar{display:none}
+  .main{margin-left:0;width:100%}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .topbar{height:auto;gap:10px;align-items:flex-start;flex-direction:column;padding:14px}
+  .search{width:100%}
+  .top-actions{flex-wrap:wrap}
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">AirCamX</div>
+    <div class="brand-sub">Lead Intelligence CRM</div>
+    <div class="nav">
+      <button class="active">Dashboard</button>
+      <button>Hot Leads</button>
+      <button>Pipeline</button>
+      <button>Follow Ups</button>
+      <button>Campaigns</button>
+      <button>Settings</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <input id="searchInput" class="search" placeholder="Search address, city, agent..." oninput="renderLeads()" />
+      <div class="top-actions">
+        <button class="btn" onclick="openBulkImport()">Bulk URLs</button>
+        <button class="btn" onclick="loadCSV()">Import CSV</button>
+        <button class="btn primary" onclick="openAddLead()">+ Add Lead</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="page-title">Lead Dashboard</div>
+      <div class="muted">Track weak-media listings, outreach status, follow-ups, and booked shoots.</div>
+
+      <div class="stats">
+        <div class="stat"><span>Total Leads</span><strong id="totalLeads">0</strong></div>
+        <div class="stat"><span>Hot Leads</span><strong id="hotLeads">0</strong></div>
+        <div class="stat"><span>Contacted</span><strong id="contactedLeads">0</strong></div>
+        <div class="stat"><span>Booked / Closed</span><strong id="bookedLeads">0</strong></div>
+      </div>
+
+      <section class="panel">
+        <div class="filters">
+          <div class="filters-left">
+            <select id="statusFilter" onchange="renderLeads()">
+              <option value="all">All Statuses</option>
+              <option value="new">New</option>
+              <option value="contacted">Contacted</option>
+              <option value="replied">Replied</option>
+              <option value="follow_up">Follow Up</option>
+              <option value="booked">Booked</option>
+              <option value="closed">Closed</option>
+              <option value="lost">Lost</option>
+              <option value="needs_review">Needs Review</option>
+            </select>
+            <select id="scoreFilter" onchange="renderLeads()">
+              <option value="all">All Scores</option>
+              <option value="hot">Hot 90+</option>
+              <option value="warm">Warm 60+</option>
+            </select>
+          </div>
+          <button class="btn" onclick="refreshLeads()">Refresh</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Property</th>
+                <th>Agent</th>
+                <th>Media</th>
+                <th>Score</th>
+                <th>Status</th>
+                <th>AI Message</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="leadRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="bulkModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-title">Bulk Import Listing URLs</div>
+      <button class="icon-btn" onclick="closeBulkImport()">X</button>
+    </div>
+    <textarea id="bulkUrls" style="width:100%;min-height:190px" placeholder="Paste one listing URL per line"></textarea>
+    <div class="muted" style="margin-top:8px">Tip: restricted sites may import partial data only. Review missing fields after import.</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeBulkImport()">Cancel</button>
+      <button class="btn primary" onclick="submitBulkUrls()">Import URLs</button>
+    </div>
+  </div>
+</div>
+
+<div id="addLeadModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-title">Add New Lead</div>
+      <button class="icon-btn" onclick="closeAddLead()">X</button>
+    </div>
+    <div class="form-grid">
+      <input id="f_address" class="full" placeholder="Property address" />
+      <input id="f_city" placeholder="City" />
+      <input id="f_price" placeholder="Price" />
+      <input id="f_agent_name" placeholder="Agent name" />
+      <input id="f_agent_phone" placeholder="Phone" />
+      <input id="f_agent_email" placeholder="Email" />
+      <input id="f_photo_count" placeholder="Photo count" />
+      <input id="f_listing_url" class="full" placeholder="Listing URL optional" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAddLead()">Cancel</button>
+      <button class="btn primary" onclick="submitLead()">Add Lead</button>
+    </div>
+  </div>
+</div>
+
+<div id="drawer" class="drawer">
+  <button class="icon-btn" onclick="closeDrawer()">Close</button>
+  <div id="drawerContent"></div>
+</div>
+
+<script>
+let leads = [];
+
+async function loadCSV(){
+  const res = await fetch("/api/load");
+  const data = await res.json();
+  if(!data.success){ alert(data.error || "Could not import CSV"); return; }
+  leads = data.leads || [];
+  renderLeads();
+}
+
+async function refreshLeads(){
+  const res = await fetch("/api/leads");
+  const data = await res.json();
+  leads = data.leads || [];
+  renderLeads();
+}
+
+function updateStats(){
+  totalLeads.textContent = leads.length;
+  hotLeads.textContent = leads.filter(l => Number(l.score) >= 90).length;
+  contactedLeads.textContent = leads.filter(l => l.status === "contacted").length;
+  bookedLeads.textContent = leads.filter(l => ["booked","closed"].includes(l.status)).length;
+}
+
+function money(v){
+  const n = Number(String(v || "").replace(/[^0-9]/g,""));
+  return n ? "$" + n.toLocaleString() : "N/A";
+}
+
+function renderLeads(){
+  updateStats();
+
+  const search = searchInput.value.toLowerCase();
+  const status = statusFilter.value;
+  const scoreF = scoreFilter.value;
+
+  const filtered = leads.filter(l => {
+    const hay = `${l.address || ""} ${l.city || ""} ${l.agent_name || ""} ${l.agent_phone || ""}`.toLowerCase();
+    const score = Number(l.score || 0);
+    return hay.includes(search)
+      && (status === "all" || l.status === status)
+      && (scoreF === "all" || (scoreF === "hot" && score >= 90) || (scoreF === "warm" && score >= 60));
+  });
+
+  leadRows.innerHTML = filtered.map(l => `
+    <tr>
+      <td>
+        <div class="addr">${l.address || "No address"}</div>
+        <div class="sub">${l.city || ""} • ${money(l.price)}</div>
+        ${l.listing_url ? `<div class="sub"><a href="${l.listing_url}" target="_blank">Open listing</a></div>` : ""}
+      </td>
+      <td>
+        <strong>${l.agent_name || "Unknown"}</strong>
+        <div class="sub">${l.agent_phone || "No phone"}</div>
+      </td>
+      <td>
+        <strong>${l.photo_count || 0}</strong> photos
+        <div class="sub">Weak media target</div>
+      </td>
+      <td><span class="score ${Number(l.score)>=90 ? "hot":""}">${l.score || 0}</span></td>
+      <td><span class="pill">${l.status || "new"}</span></td>
+      <td><div class="sms-preview">${l.sms || ""}</div></td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" onclick="copySMS('${l.id}')">Copy</button>
+          <button class="icon-btn" onclick="openDrawer('${l.id}')">Open</button>
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+async function saveLead(id, updates){
+  const res = await fetch(`/api/leads/${id}`,{
+    method:"PATCH",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(updates)
+  });
+
+  const data = await res.json();
+  if(data.success){
+    const i = leads.findIndex(l => l.id === id);
+    if(i !== -1) leads[i] = data.lead;
+    renderLeads();
+    openDrawer(id);
+  }
+}
+
+function copySMS(id){
+  const lead = leads.find(l => l.id === id);
+  if(!lead) return;
+  navigator.clipboard.writeText(lead.sms || "");
+  alert("SMS copied");
+}
+
+function openBulkImport(){ bulkModal.style.display = "flex"; }
+function closeBulkImport(){ bulkModal.style.display = "none"; }
+
+async function submitBulkUrls(){
+  const urls = bulkUrls.value.split("\n").map(u => u.trim()).filter(Boolean);
+
+  if(!urls.length){
+    alert("Paste at least one URL.");
+    return;
+  }
+
+  const res = await fetch("/api/import-urls",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({ urls })
+  });
+
+  const data = await res.json();
+
+  if(data.success){
+    leads = [...data.leads, ...leads];
+    renderLeads();
+    closeBulkImport();
+    bulkUrls.value = "";
+    alert(`Imported ${data.total} URLs`);
+  } else {
+    alert(data.error || "Import failed");
+  }
+}
+
+function openAddLead(){ addLeadModal.style.display = "flex"; }
+function closeAddLead(){ addLeadModal.style.display = "none"; }
+
+async function submitLead(){
+  const lead = {
+    address:f_address.value,
+    city:f_city.value,
+    price:f_price.value,
+    agent_name:f_agent_name.value,
+    agent_phone:f_agent_phone.value,
+    agent_email:f_agent_email.value,
+    photo_count:f_photo_count.value,
+    listing_url:f_listing_url.value
+  };
+
+  const res = await fetch("/api/add-lead",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(lead)
+  });
+
+  const data = await res.json();
+  if(data.success){
+    leads.unshift(data.lead);
+    renderLeads();
+    closeAddLead();
+  } else {
+    alert("Could not add lead");
+  }
+}
+
+function openDrawer(id){
+  const l = leads.find(x => x.id === id);
+  if(!l) return;
+
+  drawer.classList.add("open");
+  drawerContent.innerHTML = `
+    <h2>${l.address || "No address"}</h2>
+    <div class="muted">${l.city || ""} • ${money(l.price)}</div>
+    ${l.listing_url ? `<p><a href="${l.listing_url}" target="_blank">Open original listing</a></p>` : ""}
+
+    <div class="sms-box">${l.sms || ""}</div>
+
+    <button class="btn primary" onclick="copySMS('${l.id}')">Copy SMS</button>
+    <button class="btn" onclick="window.location.href='tel:${l.agent_phone || ""}'">Call</button>
+    <button class="btn" onclick="window.location.href='mailto:${l.agent_email || ""}'">Email</button>
+
+    <hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0">
+
+    <label>Status</label>
+    <select style="width:100%;margin:8px 0 12px" onchange="saveLead('${l.id}',{status:this.value,last_touch:new Date().toLocaleString()})">
+      ${["new","contacted","replied","follow_up","booked","closed","lost","needs_review"].map(s =>
+        `<option value="${s}" ${l.status===s?"selected":""}>${s}</option>`
+      ).join("")}
+    </select>
+
+    <label>Agent Name</label>
+    <input style="width:100%;margin:8px 0 12px" value="${l.agent_name || ""}" onchange="saveLead('${l.id}',{agent_name:this.value})">
+
+    <label>Agent Phone</label>
+    <input style="width:100%;margin:8px 0 12px" value="${l.agent_phone || ""}" onchange="saveLead('${l.id}',{agent_phone:this.value})">
+
+    <label>Photo Count</label>
+    <input style="width:100%;margin:8px 0 12px" value="${l.photo_count || ""}" onchange="saveLead('${l.id}',{photo_count:this.value})">
+
+    <label>Deal Value</label>
+    <input style="width:100%;margin:8px 0 12px" value="${l.deal_value || ""}" onchange="saveLead('${l.id}',{deal_value:this.value})">
+
+    <label>Next Follow Up</label>
+    <input style="width:100%;margin:8px 0 12px" value="${l.next_follow_up || ""}" onchange="saveLead('${l.id}',{next_follow_up:this.value})">
+
+    <label>Notes</label>
+    <textarea onchange="saveLead('${l.id}',{notes:this.value})">${l.notes || ""}</textarea>
+  `;
+}
+
+function closeDrawer(){ drawer.classList.remove("open"); }
+
+refreshLeads();
+</script>
+</body>
+</html>
